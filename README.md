@@ -317,6 +317,9 @@ It's one screen of plain Java, no libraries, no Gradle. The background is drawn 
 - **Photo frame.** The screensaver shows your wallpapers with a clock and the date. The TV still goes to sleep on time.
 - **Less RAM after boot.** Two minutes after start-up the home screen clears apps that start themselves (Netflix by default, about 130 MB) while they're in the background. Change it with `am start -n com.ansub.tvhome/.MainActivity --es stamp $(date +%s) --es trim "pkg1,pkg2"` (`none` turns it off).
 - **Phone remote.** `python remote/tv_remote.py <TV_IP>` (or double-click `remote/start-remote.cmd` on Windows) prints a link. Open it on your phone for buttons, apps, typing into search boxes, wallpapers, a sleep timer and a live view of the screen.
+- **Watch time and a daily goal.** The phone remote shows the last 7 days as a chart, with each day's apps underneath. Pick a daily goal (2, 3 or 4 hours, or off; 3 by default): past it, the home screen's greeting suggests a break. Nothing is locked. History starts the day you install this.
+- **See the TV on your laptop.** `remote/tv-screen.cmd` opens the TV's screen in a window with [scrcpy](https://github.com/Genymobile/scrcpy) (unzip it into `%LOCALAPPDATA%\Programs\scrcpy-win64-v5.0.1`). Click to select, right-click for Back.
+- **Desktop shortcuts (Windows).** `remote/start-remote.cmd`, `remote/tv-screen.cmd` and `remote/tv-check.cmd` are made to be pinned to the desktop; `python remote/make_icons.py` draws icons for them.
 - **Daily check.** `sh maintain.sh <TV_IP>` runs `check.sh --fix` on your change list and clears caches. Run it from Task Scheduler or cron; it does nothing while the TV is off.
 
 `check.sh` lists can also hold `appops <package> <op> <mode>` lines, like `appops com.netflix.ninja RUN_ANY_IN_BACKGROUND ignore`.

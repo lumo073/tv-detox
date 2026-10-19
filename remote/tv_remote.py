@@ -18,13 +18,15 @@ import socket
 import subprocess
 import sys
 import threading
+import webbrowser
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", "8765"))
-WALLS = "/sdcard/Android/data/com.ansub.tvhome/files/wallpapers"
+FILES = "/sdcard/Android/data/com.ansub.tvhome/files"
+WALLS = FILES + "/wallpapers"
 
 # Friendly names for common TV apps; anything else shows its own package name.
 NAMES = {
@@ -152,6 +154,10 @@ def act(a, q):
         sh("pm trim-caches 99G")
     elif a == "screensaver":
         sh("am start -n com.android.systemui/.Somnambulator")
+    elif a == "goal":  # minutes of TV a day before the home screen suggests a break; 0 turns it off
+        mins = q.get("mins", "0")
+        if mins.isdigit():
+            sh("am broadcast -n com.ansub.tvhome/.Control -a com.ansub.tvhome.SET --es goal %d" % int(mins))
     elif a == "timer":
         set_sleep_timer(int(q.get("mins", "0")) if q.get("mins", "0").isdigit() else 0)
     elif a == "reboot":
@@ -178,7 +184,7 @@ class Handler(BaseHTTPRequestHandler):
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         try:
             if what == "":
-                return self.send(200, PAGE.replace("__TV__", html.escape(TV)), "text/html; charset=utf-8")
+                return self.send(200, page().replace("__TV__", html.escape(TV)), "text/html; charset=utf-8")
             with lock:
                 if not connected():
                     return self.send(503, json.dumps({"error": "TV not reachable. Is it on?"}))
@@ -188,6 +194,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, json.dumps(status()))
                 if what == "apps":
                     return self.send(200, json.dumps(apps()))
+                if what == "usage":  # the home screen writes the last 7 days, then we read them
+                    sh("am broadcast -n com.ansub.tvhome/.Control -a com.ansub.tvhome.USAGE", timeout=30)
+                    data = sh("cat %s/usage.json 2>/dev/null" % FILES).strip()
+                    return self.send(200, data or json.dumps({"error": "No watch time yet."}))
                 if what == "walls":
                     names = [n for n in sh("ls %s 2>/dev/null" % WALLS).split() if "." in n]
                     return self.send(200, json.dumps(names))
@@ -223,17 +233,31 @@ def load_token():
     return t
 
 
-PAGE = open(os.path.join(HERE, "remote.html"), encoding="utf-8").read()
+def page():  # read each time, so an updated remote.html shows without a restart
+    with open(os.path.join(HERE, "remote.html"), encoding="utf-8") as f:
+        return f.read()
+
+
 TOKEN = load_token()
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        sys.exit("Usage: python remote/tv_remote.py <TV_IP>")
+        sys.exit("Usage: python remote/tv_remote.py <TV_IP> [--open]")
     TV = sys.argv[1] if ":" in sys.argv[1] else sys.argv[1] + ":5555"
     url = "http://%s:%d/%s/" % (lan_ip(), PORT, TOKEN)
+    local = "http://127.0.0.1:%d/%s/" % (PORT, TOKEN)
+    try:
+        server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    except OSError:  # already running (say, started from the desktop shortcut before)
+        print("The remote is already running. Phone link:\n  %s" % url, flush=True)
+        if "--open" in sys.argv:
+            webbrowser.open(local)
+        sys.exit(0)
     print("TV remote for %s\n\n  On your phone (same Wi-Fi), open:\n  %s\n\n"
           "If Windows asks about the firewall, allow Python on private networks.\nCtrl+C stops it." % (TV, url), flush=True)
+    if "--open" in sys.argv:
+        webbrowser.open(local)
     try:
-        ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+        server.serve_forever()
     except KeyboardInterrupt:
         pass

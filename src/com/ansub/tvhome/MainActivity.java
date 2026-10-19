@@ -4,8 +4,6 @@ import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AppOpsManager;
 import android.app.Dialog;
-import android.app.usage.UsageEvents;
-import android.app.usage.UsageStatsManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -56,11 +54,9 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
-import java.util.HashMap;
 import java.util.Collections;
 import java.util.TreeMap;
 import java.util.List;
-import java.util.Map;
 
 public class MainActivity extends Activity {
 
@@ -80,6 +76,8 @@ public class MainActivity extends Activity {
     //   --es bedtime "23:00"    from then until 5 am the greeting says it's time to wind down (none: off)
     //   --es wall daily         wallpaper: a different one each day (default), "off", or a file name
     //   --es birthday "07-21"   month-day: the greeting says happy birthday that day
+    //   --es goal 180           minutes of TV a day; past it, the greeting suggests a break (0: off).
+    //                           Default 3 hours. The phone remote sets it too, through Control.
     //   --es trim "pkg1,pkg2"   apps that start themselves at boot, cleared from memory two minutes
     //                           after start-up (default Netflix, which holds ~130 MB; none: off)
     // Wallpapers are files in the app's folder on the TV, see Wallpapers.java. A picture icon by the
@@ -103,7 +101,7 @@ public class MainActivity extends Activity {
     private static final int[][] QUICK_ICONS = {LineIcon.BLUETOOTH, LineIcon.SOUND, LineIcon.PICTURE};
     private static final String NETWORK = "network";
     private static final String WALL = "wallpaper";
-    private static final String[] PREF_EXTRAS = {"name", "bedtime", "wall", "trim", "birthday"};
+    private static final String[] PREF_EXTRAS = {"name", "bedtime", "wall", "trim", "birthday", "goal"};
     private static final int OFFLINE = 0, ETHERNET = 4; // network states; 1 to 3 are Wi-Fi bars
     // TCL keeps its own Picture and Sound panels in a service; Android's Sound page is missing there.
     private static final String TCL_SHOW_WINDOW = "com.tcl.settings.SHOW_WINDOW";
@@ -441,7 +439,11 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             final long watched = watchedToday();
             if (watched < 60_000) return;
-            final String line = head + "  \u00b7  " + duration(watched) + " of TV today";
+            // Past the daily goal, a gentle nudge. It never locks anything.
+            int goal = Control.goalMinutes(this);
+            final String line = goal > 0 && watched >= goal * 60_000L
+                    ? head + "  \u00b7  " + duration(watched) + " of TV today. Maybe take a break?"
+                    : head + "  \u00b7  " + duration(watched) + " of TV today";
             runOnUiThread(() -> { if (greeting.getText().toString().startsWith(head)) greeting.setText(line); });
         }).start();
     }
@@ -483,31 +485,7 @@ public class MainActivity extends Activity {
 
     // Time apps other than this home screen were on screen since midnight, from Android's own usage log.
     private long watchedToday() {
-        try {
-            UsageStatsManager usm = (UsageStatsManager) getSystemService(Context.USAGE_STATS_SERVICE);
-            Calendar c = Calendar.getInstance();
-            long now = c.getTimeInMillis();
-            c.set(Calendar.HOUR_OF_DAY, 0);
-            c.set(Calendar.MINUTE, 0);
-            c.set(Calendar.SECOND, 0);
-            c.set(Calendar.MILLISECOND, 0);
-            UsageEvents events = usm.queryEvents(c.getTimeInMillis(), now);
-            UsageEvents.Event ev = new UsageEvents.Event();
-            Map<String, Long> since = new HashMap<>();
-            long total = 0;
-            while (events.getNextEvent(ev)) {
-                String p = ev.getPackageName();
-                if (p == null || p.equals(getPackageName())) continue;
-                if (ev.getEventType() == UsageEvents.Event.MOVE_TO_FOREGROUND) since.put(p, ev.getTimeStamp());
-                else if (ev.getEventType() == UsageEvents.Event.MOVE_TO_BACKGROUND) {
-                    Long start = since.remove(p);
-                    if (start != null) total += ev.getTimeStamp() - start;
-                }
-            }
-            return total;
-        } catch (Exception e) {
-            return 0;
-        }
+        return Usage.total(Usage.perDay(this, 1).get(0));
     }
 
     private void buildTiles() {

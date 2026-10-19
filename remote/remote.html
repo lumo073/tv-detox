@@ -44,6 +44,30 @@
            border-radius:12px; font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none; }
   .danger { color:#ff9a8a; }
   small { color:var(--dim); font-size:12px; }
+  /* Watch time: one series, so one colour and no legend. Hairline grid, 4px rounded bar tops. */
+  :root { --bar:#e8642f; --grid:#3a3135; --muted:#7f7376; }
+  .wt-head { display:flex; justify-content:space-between; align-items:center; }
+  .wt-head h2 { margin:0; }
+  .wt-head button { padding:6px 12px; background:transparent; color:var(--dim); }
+  .hero { font-size:48px; font-weight:650; line-height:1.1; margin-top:6px; font-variant-numeric:normal; }
+  .wt-chart { position:relative; height:150px; margin:18px 0 6px; display:grid; grid-template-columns:repeat(7,1fr);
+              border-bottom:1px solid var(--grid); }
+  .wt-col { position:relative; height:100%; padding:0; background:transparent; border-radius:0; display:flex;
+            align-items:flex-end; justify-content:center; }
+  .wt-col:active { transform:none; background:rgba(255,255,255,.04); }
+  .wt-bar { width:22px; background:var(--bar); border-radius:4px 4px 0 0; opacity:.45; min-height:0; }
+  .wt-col.sel .wt-bar { opacity:1; }
+  .wt-val { position:absolute; left:0; right:0; text-align:center; font-size:12px; color:var(--text); font-weight:600; }
+  .wt-days { display:grid; grid-template-columns:repeat(7,1fr); text-align:center; font-size:12px; color:var(--dim); }
+  .wt-days .sel { color:var(--text); font-weight:600; }
+  .wt-goal { position:absolute; left:0; right:0; border-top:1px solid var(--muted); pointer-events:none; }
+  .wt-goal span { position:absolute; right:0; top:-17px; font-size:11px; color:var(--dim); }
+  .wt-apps { margin-top:14px; display:grid; gap:10px; }
+  .wt-app { display:grid; grid-template-columns:1fr auto; gap:4px 10px; font-size:14px; }
+  .wt-app .v { color:var(--dim); font-variant-numeric:tabular-nums; }
+  .wt-app .track { grid-column:1 / -1; height:6px; }
+  .wt-app .fill { height:100%; background:var(--bar); border-radius:0 3px 3px 0; min-width:2px; }
+  #goals .on { outline:2px solid var(--bar); outline-offset:-2px; }
 </style>
 </head>
 <body>
@@ -92,6 +116,23 @@
 <section>
   <h2>Apps</h2>
   <div class="apps" id="apps"><small>Loading…</small></div>
+</section>
+
+<section>
+  <div class="wt-head">
+    <h2>Watch time</h2>
+    <button id="wtReload" aria-label="Refresh watch time">↻</button>
+  </div>
+  <div class="hero" id="wtHero">–</div>
+  <small id="wtSub">Loading…</small>
+  <div class="wt-chart" id="wtChart" role="group" aria-label="Watch time, last 7 days"></div>
+  <div class="wt-apps" id="wtApps"></div>
+  <h2 style="margin-top:16px">Daily goal</h2>
+  <div class="row" id="goals">
+    <button data-a="goal" data-name="120">2 hours</button><button data-a="goal" data-name="180">3 hours</button>
+    <button data-a="goal" data-name="240">4 hours</button><button data-a="goal" data-name="0">Off</button>
+  </div>
+  <small>Past the goal, the home screen gently suggests a break. Nothing is ever locked.</small>
 </section>
 
 <section>
@@ -156,8 +197,9 @@ document.addEventListener("click", e => {
   delete b.dataset.held;
   if (b.dataset.a) {
     if (b.dataset.confirm && !confirm(b.dataset.confirm)) return;
-    buzz(); const p = b.dataset.a === "timer" ? { mins: b.dataset.name } : b.dataset.name ? { name: b.dataset.name } : null;
-    call(b.dataset.a, p).then(r => r && toast(b.textContent.trim() + " ✓"));
+    const minutes = b.dataset.a === "timer" || b.dataset.a === "goal";
+    buzz(); const p = minutes ? { mins: b.dataset.name } : b.dataset.name ? { name: b.dataset.name } : null;
+    call(b.dataset.a, p).then(r => { if (!r) return; toast(b.textContent.trim() + " ✓"); if (b.dataset.a === "goal") loadUsage(); });
   }
 });
 let holdTimer;
@@ -217,7 +259,65 @@ async function refresh() {
   $("#timer").textContent = s.sleep_in ? `The TV turns off in ${s.sleep_in} min.` : "The TV turns itself off when it runs out. Keep this laptop on until then.";
   $("#st").innerHTML = `${s.sleep_in ? "⏾ " + s.sleep_in + "m · " : ""}${s.awake ? "On" : "Asleep"} · <b>${s.free_mb} MB</b> free` + (s.app ? `<br>${s.app}` : "");
 }
-refresh(); loadApps(); loadWalls(); setInterval(refresh, 10000);
+// Watch time: 7 columns (one series, one colour), the chosen day labelled, the goal as a hairline,
+// and that day's apps as bars underneath. Tap a day to see it.
+const fmt = ms => { const m = Math.round(ms / 60000), h = Math.floor(m / 60);
+  return ms > 0 && m === 0 ? "<1m" : h ? (m % 60 ? `${h}h ${m % 60}m` : `${h}h`) : `${m}m`; };
+let usage = null, day = 6;
+async function loadUsage() {
+  $("#wtSub").textContent = "Loading…";
+  const r = await call("usage"); if (!r) { $("#wtSub").textContent = "TV not reachable."; return; }
+  usage = await r.json();
+  if (!usage.days) { $("#wtSub").textContent = usage.error || "No watch time yet."; return; }
+  day = usage.days.length - 1;
+  document.querySelectorAll("#goals button").forEach(g => g.classList.toggle("on", +g.dataset.name === usage.goal));
+  drawUsage();
+}
+function drawUsage() {
+  const days = usage.days, goal = usage.goal * 60000;
+  const top = Math.max(3600000, goal * 1.15, ...days.map(d => d.total * 1.15));
+  const chart = $("#wtChart"); chart.innerHTML = "";
+  days.forEach((d, i) => {
+    const col = document.createElement("button");
+    col.className = "wt-col" + (i === day ? " sel" : "");
+    col.setAttribute("aria-label", `${d.label} ${d.date.slice(8)}: ${fmt(d.total)}`);
+    col.title = `${d.label} ${d.date.slice(8)}: ${fmt(d.total)}`;
+    const h = Math.round(d.total / top * 150), bar = document.createElement("div");
+    bar.className = "wt-bar"; bar.style.height = h + "px"; col.appendChild(bar);
+    if (i === day && d.total > 0) {  // label only the chosen day
+      const v = document.createElement("div"); v.className = "wt-val"; v.textContent = fmt(d.total);
+      v.style.bottom = (h + 4) + "px"; col.appendChild(v);
+    }
+    col.onclick = () => { day = i; drawUsage(); };
+    chart.appendChild(col);
+  });
+  if (goal > 0) {
+    const g = document.createElement("div"); g.className = "wt-goal";
+    g.style.bottom = Math.round(goal / top * 150) + "px";
+    g.innerHTML = `<span>Goal ${fmt(goal)}</span>`; chart.appendChild(g);
+  }
+  let labels = $("#wtDays");
+  if (!labels) { labels = document.createElement("div"); labels.id = "wtDays"; labels.className = "wt-days"; chart.after(labels); }
+  labels.innerHTML = days.map((d, i) => `<div class="${i === day ? "sel" : ""}">${i === days.length - 1 ? "Today" : d.label}</div>`).join("");
+
+  const d = days[day];
+  $("#wtHero").textContent = fmt(d.total);
+  const when = day === days.length - 1 ? "today" : `on ${d.label} ${+d.date.slice(8)}`;
+  const week = days.reduce((s, x) => s + x.total, 0);
+  $("#wtSub").textContent = `${when}` + (goal ? (d.total > goal ? ` · ${fmt(d.total - goal)} over the goal` : ` · goal ${fmt(goal)}`) : "")
+    + ` · ${fmt(week)} this week` + (week === d.total ? " (history starts from today)" : "");
+  const apps = d.apps.slice().sort((a, b) => b.ms - a.ms);
+  const shown = apps.slice(0, 6), rest = apps.slice(6).reduce((s, a) => s + a.ms, 0);
+  if (rest) shown.push({ name: "Other", ms: rest });
+  const max = Math.max(1, ...shown.map(a => a.ms));
+  $("#wtApps").innerHTML = shown.length ? shown.map(a =>
+    `<div class="wt-app"><span>${a.name.replace(/</g, "&lt;")}</span><span class="v">${fmt(a.ms)}</span>` +
+    `<div class="track"><div class="fill" style="width:${(a.ms / max * 100).toFixed(1)}%"></div></div></div>`).join("")
+    : "<small>Nothing watched this day.</small>";
+}
+$("#wtReload").onclick = loadUsage;
+
+refresh(); loadApps(); loadWalls(); loadUsage(); setInterval(refresh, 10000);
 </script>
 </body>
 </html>
