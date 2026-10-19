@@ -7,6 +7,7 @@
 #
 # Uses out/tvhome.apk if you built it, otherwise downloads the latest release.
 set -e
+export MSYS2_ARG_CONV_EXCL="/sdcard;/data;/system" # Git Bash on Windows: keep TV paths as they are
 cd "$(dirname "$0")"
 
 TARGET="$1"; APPS="$2"; QUICK="$3"

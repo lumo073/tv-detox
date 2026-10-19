@@ -9,7 +9,9 @@
 #   off com.example.app                        the app stays turned off
 #   global window_animation_scale 0            a setting (global, secure or system)
 #   device_config activity_manager max_cached_processes 4
+#   appops com.example.app RUN_ANY_IN_BACKGROUND ignore   an app permission (appops)
 set -e
+export MSYS2_ARG_CONV_EXCL="/sdcard;/data;/system" # Git Bash on Windows: keep TV paths as they are
 cd "$(dirname "$0")"
 
 TARGET="$1"; FIX=; LIST=
@@ -54,6 +56,10 @@ if [ -n "$LIST" ]; then
         else echo "  gone  $a (not installed)"; fi ;;
       global|secure|system)
         check "$kind $a = $b" "[ \"\$(sh_tv settings get $kind $a)\" = \"$b\" ]" "sh_tv settings put $kind $a $b" ;;
+      appops)
+        if installed "$a"; then
+          check "$a $b = $c" "sh_tv cmd appops get $a $b | grep -q \": $c\"" "sh_tv cmd appops set $a $b $c"
+        else echo "  gone  $a (not installed)"; fi ;;
       device_config)
         check "$a/$b = $c" "[ \"\$(sh_tv device_config get $a $b)\" = \"$c\" ]" "sh_tv device_config put $a $b $c" ;;
       *) echo "  ?     can't read: $kind $a $b $c" ;;

@@ -30,6 +30,9 @@ final class LineIcon extends Drawable {
             1, 80, 165, 1, 40, 165, 2, 0, 85, 60, 1, 85, 100, 0, 120, 60, 1, 120, 100, 0, 155, 60, 1, 155, 100};
     static final int[] PICTURE ={0, 30, 50, 1, 210, 50, 1, 210, 165, 1, 30, 165, 2, 0, 120, 165, 1, 120, 200,
             0, 80, 200, 1, 160, 200};
+    // A photo: frame, hills and a sun.
+    static final int[] IMAGE = {0, 30, 50, 1, 210, 50, 1, 210, 190, 1, 30, 190, 2,
+            0, 30, 170, 1, 90, 110, 1, 140, 160, 1, 165, 135, 1, 210, 180, 3, 160, 92, 16};
 
     private final int[] ops;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);

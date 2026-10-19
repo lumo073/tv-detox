@@ -2,6 +2,7 @@
 # Removes the home screen and turns your TV's own home screen back on.
 # Usage: sh undo.sh <TV_IP>
 set -e
+export MSYS2_ARG_CONV_EXCL="/sdcard;/data;/system" # Git Bash on Windows: keep TV paths as they are
 [ -n "$1" ] || { echo "Usage: sh undo.sh <TV_IP>" >&2; exit 1; }
 case "$1" in
   *.*.*.*:*) TV=$1 ;;

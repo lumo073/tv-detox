@@ -1,7 +1,11 @@
 package com.ansub.tvhome;
 
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.AppOpsManager;
 import android.app.Dialog;
+import android.app.usage.UsageEvents;
+import android.app.usage.UsageStatsManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -29,6 +33,8 @@ import android.net.NetworkRequest;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -49,9 +55,12 @@ import android.widget.TextView;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
+import java.util.HashMap;
 import java.util.Collections;
 import java.util.TreeMap;
 import java.util.List;
+import java.util.Map;
 
 public class MainActivity extends Activity {
 
@@ -66,6 +75,15 @@ public class MainActivity extends Activity {
     // it there, off until picked the same way:
     //   --es quick "bluetooth,sound,picture"
     // (--es quick none  takes them away again; "wifi" and "ethernet" are the network tile now).
+    // Personal touches, saved the same way:
+    //   --es name "Lumo"        the greeting under the clock says "Good evening, Lumo"
+    //   --es bedtime "23:00"    from then until 5 am the greeting says it's time to wind down (none: off)
+    //   --es wall daily         wallpaper: a different one each day (default), "off", or a file name
+    //   --es trim "pkg1,pkg2"   apps that start themselves at boot, cleared from memory two minutes
+    //                           after start-up (default Netflix, which holds ~130 MB; none: off)
+    // Wallpapers are files in the app's folder on the TV, see Wallpapers.java. A picture icon by the
+    // network icon picks one from the remote. Watch time today shows once usage access is allowed:
+    //   adb shell appops set com.ansub.tvhome GET_USAGE_STATS allow
     private static final String PREFS = "config";
     private static final List<String> NOT_APPS = Arrays.asList("com.android.vending", "com.android.tv.settings",
             "com.android.tv", "com.google.android.tvlauncher", "com.google.android.apps.tv.launcherx",
@@ -83,6 +101,8 @@ public class MainActivity extends Activity {
     private static final String[] QUICK_LABELS = {"Bluetooth", "Sound", "Picture"};
     private static final int[][] QUICK_ICONS = {LineIcon.BLUETOOTH, LineIcon.SOUND, LineIcon.PICTURE};
     private static final String NETWORK = "network";
+    private static final String WALL = "wallpaper";
+    private static final String[] PREF_EXTRAS = {"name", "bedtime", "wall", "trim"};
     private static final int OFFLINE = 0, ETHERNET = 4; // network states; 1 to 3 are Wi-Fi bars
     // TCL keeps its own Picture and Sound panels in a service; Android's Sound page is missing there.
     private static final String TCL_SHOW_WINDOW = "com.tcl.settings.SHOW_WINDOW";
@@ -105,6 +125,17 @@ public class MainActivity extends Activity {
     private String movingKey;   // the app being moved with left/right, if any
     private TextView moveHint;  // shown above the apps while moving
     private boolean longPressed; // OK was held: swallow the key-up so the app doesn't open
+    private String wallShown;   // wallpaper file on screen, "" for the plain background, null to reload
+    private TextView greeting;  // under the clock: greeting and watch time, refreshed every minute
+    private final Handler handler = new Handler();
+    private static boolean bootTrimDone; // once per process, and this process starts with the TV
+    private final Runnable minute = new Runnable() {
+        @Override public void run() {
+            refreshGreeting();
+            applyWallpaper(); // no-op unless the day (and so the daily wallpaper) changed
+            handler.postDelayed(this, 60_000);
+        }
+    };
 
     private final BroadcastReceiver packagesChanged = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) { dirty = true; }
@@ -151,6 +182,11 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
         tp.topMargin = px(-20); // pull the big digits up under the date
         clock.addView(time, tp);
+        greeting = text(px(30), 0xC8FFFFFF, regular);
+        greeting.setShadowLayer(px(8), 0, 0, 0x66000000);
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-2, -2);
+        gp.topMargin = px(6);
+        clock.addView(greeting, gp);
         root.addView(clock, at(px(MARGIN), px(92), -2, -2));
 
         moveHint = text(px(24), 0xA8FFFFFF, regular);
@@ -159,6 +195,11 @@ public class MainActivity extends Activity {
         root.addView(moveHint, at(px(MARGIN), px(ROW1_TOP - 64), -2, -2));
 
         setContentView(scroller);
+
+        if (!bootTrimDone && SystemClock.elapsedRealtime() < 10 * 60_000) {
+            bootTrimDone = true;
+            handler.postDelayed(this::trimAfterBoot, 120_000);
+        }
 
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -197,7 +238,9 @@ public class MainActivity extends Activity {
     private boolean saveConfig(Intent intent) {
         String apps = intent == null ? null : intent.getStringExtra("apps");
         String quick = intent == null ? null : intent.getStringExtra("quick");
-        if (apps == null && quick == null) return false;
+        boolean extras = false;
+        if (intent != null) for (String k : PREF_EXTRAS) extras |= intent.getStringExtra(k) != null;
+        if (apps == null && quick == null && !extras) return false;
         SharedPreferences prefs = getSharedPreferences(PREFS, 0);
         String stamp = intent.getStringExtra("stamp");
         if (stamp != null && stamp.equals(prefs.getString("stamp", null))) return false;
@@ -213,6 +256,14 @@ public class MainActivity extends Activity {
             if (quick.isEmpty() || quick.equalsIgnoreCase("none")) e.remove("quick");
             else e.putString("quick", quick);
         }
+        for (String k : PREF_EXTRAS) {
+            String v = intent.getStringExtra(k);
+            if (v == null) continue;
+            v = v.trim();
+            if (v.isEmpty() || (v.equalsIgnoreCase("none") && !k.equals("wall"))) e.remove(k);
+            else e.putString(k, v);
+        }
+        wallShown = null;
         e.apply();
         dirty = true;
         return true;
@@ -248,8 +299,16 @@ public class MainActivity extends Activity {
             buildTiles();
         }
         refreshNetwork();
+        handler.removeCallbacks(minute);
+        minute.run();
         View f = getCurrentFocus();
         if (f == null && !tiles.isEmpty()) tiles.get(0).requestFocus();
+    }
+
+    @Override
+    protected void onPause() {
+        handler.removeCallbacks(minute);
+        super.onPause();
     }
 
     @Override
@@ -272,6 +331,146 @@ public class MainActivity extends Activity {
         g.setGradientCenter(cx, cy);
         g.setGradientRadius(r);
         return g;
+    }
+
+    // Some apps start a service at boot and sit on RAM all day (Netflix: ~130 MB on a 1 GB TV).
+    // Android only lets this kill them while they're in the background, so an app in use is safe.
+    private void trimAfterBoot() {
+        String list = getSharedPreferences(PREFS, 0).getString("trim", "com.netflix.ninja");
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        if (am == null || list.equalsIgnoreCase("none")) return;
+        for (String p : list.split("[,\\s]+")) if (!p.isEmpty()) try { am.killBackgroundProcesses(p); } catch (Exception ignored) {}
+    }
+
+    // The wallpaper for now: "off" gives none, a file name gives that file, else one per day.
+    private File wallpaperFor(List<File> files) {
+        String mode = getSharedPreferences(PREFS, 0).getString("wall", "daily");
+        if (files.isEmpty() || mode.equalsIgnoreCase("off")) return null;
+        for (File f : files) if (f.getName().equals(mode) || Wallpapers.label(f).equals(mode)) return f;
+        return files.get((int) (Wallpapers.today() % files.size()));
+    }
+
+    // Swaps the window background only when the wallpaper changes (a new day, or a new pick), so
+    // coming back Home costs nothing. A shade keeps the clock and the tiles readable on bright pictures.
+    private void applyWallpaper() {
+        File f = wallpaperFor(Wallpapers.list(this));
+        String name = f == null ? "" : f.getPath();
+        if (name.equals(wallShown)) return;
+        wallShown = name;
+        Bitmap b = f == null ? null : Wallpapers.load(f, getResources().getDisplayMetrics().widthPixels,
+                getResources().getDisplayMetrics().heightPixels);
+        if (b == null) {
+            getWindow().setBackgroundDrawable(background());
+            return;
+        }
+        GradientDrawable shade = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] {0x99000000, 0x40000000, 0x1A000000, 0x59000000, 0xB3000000});
+        GradientDrawable side = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[] {0x66000000, 0x00000000, 0x00000000});
+        getWindow().setBackgroundDrawable(new LayerDrawable(new Drawable[] {
+                new BitmapDrawable(getResources(), b), shade, side}));
+    }
+
+    // Picks the wallpaper from the remote: one a day, a fixed one, or the plain background.
+    private void showWallpaperMenu() {
+        final List<File> files = Wallpapers.list(this);
+        String mode = getSharedPreferences(PREFS, 0).getString("wall", "daily");
+        final List<String> labels = new ArrayList<>();
+        final List<String> values = new ArrayList<>();
+        if (files.size() > 1) { labels.add("A new one every day"); values.add("daily"); }
+        for (File f : files) { labels.add("Wallpaper " + Wallpapers.label(f)); values.add(f.getName()); }
+        labels.add("Plain background");
+        values.add("off");
+        for (int i = 0; i < values.size(); i++)
+            if (values.get(i).equalsIgnoreCase(mode)) labels.set(i, labels.get(i) + "   \u2713");
+        String title = files.isEmpty() ? "No wallpapers on this TV yet" : "Wallpaper";
+        panel(title, labels, null, which -> {
+            getSharedPreferences(PREFS, 0).edit().putString("wall", values.get(which)).apply();
+            wallShown = null;
+            applyWallpaper();
+        });
+    }
+
+    // "Good evening, Lumo - 1h 25m of TV today". Late at night it nudges toward bed instead.
+    private void refreshGreeting() {
+        SharedPreferences prefs = getSharedPreferences(PREFS, 0);
+        String name = prefs.getString("name", null);
+        Calendar now = Calendar.getInstance();
+        int mins = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
+        int bed = minutesOf(prefs.getString("bedtime", null));
+        boolean late = bed >= 0 && (bed > 5 * 60 ? mins >= bed || mins < 5 * 60 : mins >= bed && mins < 5 * 60);
+        String hello;
+        if (late) hello = "It's getting late" + (name != null ? ", " + name : "") + ". Time to wind down";
+        else {
+            hello = mins < 5 * 60 ? "Good night" : mins < 12 * 60 ? "Good morning"
+                    : mins < 17 * 60 ? "Good afternoon" : mins < 22 * 60 ? "Good evening" : "Good night";
+            if (name != null) hello += ", " + name;
+        }
+        final String head = hello;
+        greeting.setText(head);
+        if (!usageAllowed()) return;
+        new Thread(() -> {
+            final long watched = watchedToday();
+            if (watched < 60_000) return;
+            final String line = head + "  \u00b7  " + duration(watched) + " of TV today";
+            runOnUiThread(() -> { if (greeting.getText().toString().startsWith(head)) greeting.setText(line); });
+        }).start();
+    }
+
+    // "23:00" -> 1380, or -1 when unset or unreadable.
+    private static int minutesOf(String hhmm) {
+        if (hhmm == null) return -1;
+        try {
+            String[] p = hhmm.trim().split(":");
+            int h = Integer.parseInt(p[0]), m = p.length > 1 ? Integer.parseInt(p[1]) : 0;
+            return h >= 0 && h < 24 && m >= 0 && m < 60 ? h * 60 + m : -1;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private static String duration(long ms) {
+        long m = ms / 60_000, h = m / 60;
+        return h > 0 ? h + "h " + (m % 60) + "m" : m + "m";
+    }
+
+    private boolean usageAllowed() {
+        try {
+            AppOpsManager ops = (AppOpsManager) getSystemService(Context.APP_OPS_SERVICE);
+            return ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(),
+                    getPackageName()) == AppOpsManager.MODE_ALLOWED;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // Time apps other than this home screen were on screen since midnight, from Android's own usage log.
+    private long watchedToday() {
+        try {
+            UsageStatsManager usm = (UsageStatsManager) getSystemService(Context.USAGE_STATS_SERVICE);
+            Calendar c = Calendar.getInstance();
+            long now = c.getTimeInMillis();
+            c.set(Calendar.HOUR_OF_DAY, 0);
+            c.set(Calendar.MINUTE, 0);
+            c.set(Calendar.SECOND, 0);
+            c.set(Calendar.MILLISECOND, 0);
+            UsageEvents events = usm.queryEvents(c.getTimeInMillis(), now);
+            UsageEvents.Event ev = new UsageEvents.Event();
+            Map<String, Long> since = new HashMap<>();
+            long total = 0;
+            while (events.getNextEvent(ev)) {
+                String p = ev.getPackageName();
+                if (p == null || p.equals(getPackageName())) continue;
+                if (ev.getEventType() == UsageEvents.Event.MOVE_TO_FOREGROUND) since.put(p, ev.getTimeStamp());
+                else if (ev.getEventType() == UsageEvents.Event.MOVE_TO_BACKGROUND) {
+                    Long start = since.remove(p);
+                    if (start != null) total += ev.getTimeStamp() - start;
+                }
+            }
+            return total;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private void buildTiles() {
@@ -343,11 +542,13 @@ public class MainActivity extends Activity {
         int ib = px(ICON_BUTTON), ig = px(ICON_GAP);
         // The last icon's right edge lines up with the apps' (its focus circle sticks out past them).
         int qx = getResources().getDisplayMetrics().widthPixels - m + (ib - px(ICON_SIZE)) / 2
-                - (quick.size() + 1) * ib - quick.size() * ig;
+                - (quick.size() + 2) * ib - (quick.size() + 1) * ig;
         for (int q : quick) {
             addIcon(QUICK + QUICK_NAMES[q], QUICK_LABELS[q], new LineIcon(QUICK_ICONS[q]), qx);
             qx += ib + ig;
         }
+        addIcon(WALL, "Wallpaper", new LineIcon(LineIcon.IMAGE), qx);
+        qx += ib + ig;
         netIcon = addIcon(NETWORK, "Network", null, qx);
         netState = -1;
         refreshNetwork();
@@ -490,6 +691,9 @@ public class MainActivity extends Activity {
             return;
         } else if (NETWORK.equals(key)) {
             openNetworkSettings();
+            return;
+        } else if (WALL.equals(key)) {
+            showWallpaperMenu();
             return;
         } else if (key.startsWith(QUICK)) {
             openQuick(key.substring(QUICK.length()));

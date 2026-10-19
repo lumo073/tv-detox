@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#120e0f">
+<title>TV Remote</title>
+<style>
+  :root { --bg:#120e0f; --card:#1f1a1c; --key:#2a2326; --keyhi:#3a3135; --text:#f4eeee; --dim:#a79a9d; --accent:#ff8048; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+         padding:16px 16px 40px; max-width:460px; margin-inline:auto; user-select:none; }
+  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  h1 { font-size:20px; margin:0; font-weight:650; }
+  #status { font-size:13px; color:var(--dim); text-align:right; }
+  #status b { color:var(--text); font-weight:600; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#666; margin-right:6px; vertical-align:middle; }
+  .dot.on { background:#4cd07d; }
+  section { background:var(--card); border-radius:20px; padding:14px; margin-bottom:12px; }
+  h2 { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:0 0 10px; font-weight:600; }
+  button { font:inherit; color:var(--text); background:var(--key); border:0; border-radius:14px; padding:14px 8px;
+           cursor:pointer; touch-action:manipulation; transition:background .1s, transform .05s; }
+  button:active { background:var(--keyhi); transform:scale(.96); }
+  .row { display:grid; gap:8px; grid-template-columns:repeat(4,1fr); }
+  .row3 { grid-template-columns:repeat(3,1fr); }
+  .pad { position:relative; width:min(280px,78vw); aspect-ratio:1; margin:6px auto 14px; border-radius:50%; background:var(--key); }
+  .pad button { position:absolute; background:transparent; border-radius:0; font-size:22px; color:var(--dim); }
+  .pad button:active { color:var(--text); background:rgba(255,255,255,.06); }
+  .pad .up { top:0; left:30%; width:40%; height:30%; } .pad .down { bottom:0; left:30%; width:40%; height:30%; }
+  .pad .left { left:0; top:30%; width:30%; height:40%; } .pad .right { right:0; top:30%; width:30%; height:40%; }
+  .pad .ok { top:30%; left:30%; width:40%; height:40%; border-radius:50%; background:var(--keyhi); color:var(--text);
+             font-size:17px; font-weight:650; }
+  .apps { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .apps button { font-size:14px; padding:16px 6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .type { display:flex; gap:8px; }
+  .type input { flex:1; min-width:0; font:inherit; color:var(--text); background:var(--key); border:1px solid transparent;
+                border-radius:14px; padding:12px 14px; outline:none; }
+  .type input:focus { border-color:var(--accent); }
+  .go { background:var(--accent); color:#1a0f0a; font-weight:650; padding-inline:16px; }
+  .walls { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .walls button { padding:0; aspect-ratio:16/9; background-size:cover; background-position:center; border-radius:10px; }
+  #shot { width:100%; border-radius:12px; display:none; margin-top:10px; background:#000; }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#000c; padding:10px 16px;
+           border-radius:12px; font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .danger { color:#ff9a8a; }
+  small { color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TV Remote</h1>
+  <div id="status"><span class="dot" id="dot"></span><span id="st">Connecting…</span></div>
+</header>
+
+<section>
+  <div class="pad">
+    <button class="up" data-k="up" aria-label="Up">▲</button>
+    <button class="left" data-k="left" aria-label="Left">◀</button>
+    <button class="ok" data-k="ok">OK</button>
+    <button class="right" data-k="right" aria-label="Right">▶</button>
+    <button class="down" data-k="down" aria-label="Down">▼</button>
+  </div>
+  <div class="row">
+    <button data-k="back">Back</button><button data-k="home">Home</button>
+    <button data-k="menu">Menu</button><button data-k="input">Input</button>
+  </div>
+</section>
+
+<section>
+  <div class="row">
+    <button data-k="voldown">Vol −</button><button data-k="mute">Mute</button>
+    <button data-k="volup">Vol +</button><button data-k="play">⏯&#xFE0E;</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button data-k="prev">⏮&#xFE0E;</button><button data-k="rew">⏪&#xFE0E;</button>
+    <button data-k="ff">⏩&#xFE0E;</button><button data-k="next">⏭&#xFE0E;</button>
+  </div>
+</section>
+
+<section>
+  <h2>Type on the TV</h2>
+  <div class="type">
+    <input id="txt" placeholder="Search YouTube, Netflix…" autocomplete="off" enterkeyhint="search">
+    <button class="go" id="send">Send</button>
+  </div>
+  <div class="row row3" style="margin-top:8px">
+    <button data-k="del">⌫ Delete</button><button data-k="enter">Enter</button><button id="clear">Clear field</button>
+  </div>
+  <small>Open the search box on the TV first. English letters and numbers only.</small>
+</section>
+
+<section>
+  <h2>Apps</h2>
+  <div class="apps" id="apps"><small>Loading…</small></div>
+</section>
+
+<section>
+  <h2>Wallpaper</h2>
+  <div class="walls" id="walls"><small>Loading…</small></div>
+  <div class="row row3" style="margin-top:8px">
+    <button data-a="wall" data-name="daily">New each day</button>
+    <button data-a="wall" data-name="off">Plain</button>
+    <button data-a="screensaver">Photo frame</button>
+  </div>
+</section>
+
+<section>
+  <h2>See the screen</h2>
+  <button id="look" style="width:100%">Show what's on the TV</button>
+  <img id="shot" alt="The TV screen">
+</section>
+
+<section>
+  <h2>Tools</h2>
+  <div class="row row3">
+    <button data-a="free">Free memory</button>
+    <button data-a="clean">Clear caches</button>
+    <button data-k="sleep">Sleep TV</button>
+  </div>
+  <div class="row" style="margin-top:8px; grid-template-columns:1fr">
+    <button class="danger" data-a="reboot" data-confirm="Restart the TV now?">Restart TV</button>
+  </div>
+  <small>Free memory stops apps sitting in the background; nothing is lost. When the TV is asleep, wake it with the real remote.</small>
+</section>
+
+<div id="toast"></div>
+
+<script>
+const base = location.pathname.replace(/\/?$/, "/");
+const $ = s => document.querySelector(s);
+const toast = (m) => { const t = $("#toast"); t.textContent = m; t.style.opacity = 1; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.opacity = 0, 1600); };
+const buzz = () => { try { navigator.vibrate && navigator.vibrate(8); } catch (e) {} };
+
+async function call(path, params) {
+  const q = params ? "?" + new URLSearchParams(params) : "";
+  try {
+    const r = await fetch(base + path + q);
+    if (!r.ok) { const j = await r.json().catch(() => ({})); toast(j.error || "Something went wrong"); return null; }
+    return r;
+  } catch (e) { toast("Can't reach the laptop"); return null; }
+}
+
+// Buttons: data-k sends a key (hold for a long press), data-a runs an action.
+document.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.k && !b.dataset.held) { buzz(); call("key", { k: b.dataset.k }); }
+  delete b.dataset.held;
+  if (b.dataset.a) {
+    if (b.dataset.confirm && !confirm(b.dataset.confirm)) return;
+    buzz(); const p = b.dataset.name ? { name: b.dataset.name } : null;
+    call(b.dataset.a, p).then(r => r && toast(b.textContent.trim() + " ✓"));
+  }
+});
+let holdTimer;
+document.addEventListener("pointerdown", e => {
+  const b = e.target.closest("button[data-k]"); if (!b) return;
+  holdTimer = setTimeout(() => { b.dataset.held = 1; buzz(); call("key", { k: b.dataset.k, long: 1 }); toast("Long press"); }, 550);
+});
+["pointerup", "pointerleave", "pointercancel"].forEach(ev => document.addEventListener(ev, () => clearTimeout(holdTimer)));
+
+// Laptop keyboard works too when the text box isn't focused.
+const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "ok", Backspace: "back", Escape: "back", h: "home", m: "mute", " ": "play", "+": "volup", "-": "voldown" };
+document.addEventListener("keydown", e => {
+  if (document.activeElement === $("#txt")) return;
+  const k = map[e.key]; if (k) { e.preventDefault(); call("key", { k }); }
+});
+
+function send(enter) {
+  const t = $("#txt").value; if (!t) return;
+  call("text", { t, enter: enter ? 1 : "" }).then(r => r && toast("Typed"));
+  $("#txt").value = "";
+}
+$("#send").onclick = () => send(true);
+$("#txt").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); send(true); } });
+$("#clear").onclick = async () => { for (let i = 0; i < 4; i++) await call("key", { k: "del", long: 1 }); };
+
+$("#look").onclick = async () => {
+  $("#look").textContent = "Loading…";
+  const r = await call("shot");
+  if (r) { const img = $("#shot"); img.src = URL.createObjectURL(await r.blob()); img.style.display = "block"; }
+  $("#look").textContent = "Refresh";
+};
+
+async function loadApps() {
+  const r = await call("apps"); if (!r) return;
+  const list = await r.json(), box = $("#apps"); box.innerHTML = "";
+  for (const a of list) {
+    const b = document.createElement("button"); b.textContent = a.name; b.title = a.pkg;
+    b.onclick = () => { buzz(); call("open", { pkg: a.pkg }).then(r => r && toast("Opening " + a.name)); };
+    box.appendChild(b);
+  }
+}
+async function loadWalls() {
+  const r = await call("walls"); if (!r) return;
+  const list = await r.json(), box = $("#walls"); box.innerHTML = list.length ? "" : "<small>No wallpapers on the TV yet.</small>";
+  for (const n of list) {
+    const b = document.createElement("button"); b.setAttribute("aria-label", "Wallpaper " + n);
+    b.style.backgroundImage = `url("${base}wallimg?name=${encodeURIComponent(n)}")`;
+    b.onclick = () => { buzz(); call("wall", { name: n }).then(r => r && toast("Wallpaper set")); };
+    box.appendChild(b);
+  }
+}
+async function refresh() {
+  const r = await call("status");
+  if (!r) { $("#dot").className = "dot"; $("#st").textContent = "TV offline"; return; }
+  const s = await r.json();
+  $("#dot").className = "dot" + (s.awake ? " on" : "");
+  $("#st").innerHTML = `${s.awake ? "On" : "Asleep"} · <b>${s.free_mb} MB</b> free` + (s.app ? `<br>${s.app}` : "");
+}
+refresh(); loadApps(); loadWalls(); setInterval(refresh, 10000);
+</script>
+</body>
+</html>

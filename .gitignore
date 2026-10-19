@@ -3,3 +3,7 @@ key.jks
 *.apk
 .DS_Store
 .idea
+remote/.token
+wallpapers/
+my-tv.txt
+maintain.log
