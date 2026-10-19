@@ -311,10 +311,12 @@ It's one screen of plain Java, no libraries, no Gradle. The background is drawn 
 <br>
 
 - **Your wallpapers.** Put pictures in `wallpapers/`, then run `sh personalize.sh <TV_IP> <your name> 23:00`. They're shrunk to the TV's screen size and shown one a day behind the home screen (about 2 MB of RAM). The picture icon next to the Wi-Fi icon picks one from the remote.
-- **Greeting and watch time.** Under the clock: "Good evening, <name> · 1h 20m of TV today". After the bedtime you give, it says it's time to wind down.
-- **Photo frame.** The screensaver shows your wallpapers with a clock. The TV still goes to sleep on time.
+- **Greeting and watch time.** Under the clock: "Good evening, <name> · 1h 20m of TV today". After the bedtime you give, it says it's time to wind down and the wallpaper dims. It also wishes you a happy birthday (4th argument, `MM-DD`) and a happy New Year, Nepali and English.
+- **Nepali date.** Today in Bikram Sambat, in Devanagari, next to the date (BS 2080 to 2100).
+- **Colours from your wallpaper.** The focus glow on tiles, icons and menus takes the wallpaper's colour, worked out once from a 32x18 copy.
+- **Photo frame.** The screensaver shows your wallpapers with a clock and the date. The TV still goes to sleep on time.
 - **Less RAM after boot.** Two minutes after start-up the home screen clears apps that start themselves (Netflix by default, about 130 MB) while they're in the background. Change it with `am start -n com.ansub.tvhome/.MainActivity --es stamp $(date +%s) --es trim "pkg1,pkg2"` (`none` turns it off).
-- **Phone remote.** `python remote/tv_remote.py <TV_IP>` (or double-click `remote/start-remote.cmd` on Windows) prints a link. Open it on your phone for buttons, apps, typing into search boxes, wallpapers and a live view of the screen.
+- **Phone remote.** `python remote/tv_remote.py <TV_IP>` (or double-click `remote/start-remote.cmd` on Windows) prints a link. Open it on your phone for buttons, apps, typing into search boxes, wallpapers, a sleep timer and a live view of the screen.
 - **Daily check.** `sh maintain.sh <TV_IP>` runs `check.sh --fix` on your change list and clears caches. Run it from Task Scheduler or cron; it does nothing while the TV is off.
 
 `check.sh` lists can also hold `appops <package> <op> <mode>` lines, like `appops com.netflix.ninja RUN_ANY_IN_BACKGROUND ignore`.

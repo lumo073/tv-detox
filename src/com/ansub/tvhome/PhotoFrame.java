@@ -9,10 +9,15 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextClock;
+import android.widget.TextView;
 
 import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.List;
+import java.util.Locale;
 
 // Screensaver: the wallpapers fade from one to the next with a small clock, like a photo frame.
 // Two screen-sized bitmaps at most (the one showing and the one fading in). The TV still goes to
@@ -64,9 +69,23 @@ public class PhotoFrame extends DreamService {
         clock.setTextColor(0xE6FFFFFF);
         clock.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.round(96 * scale));
         clock.setShadowLayer(12 * scale, 0, 0, 0x80000000);
+        // Date under the clock, in English and in Bikram Sambat.
+        TextView date = new TextView(this);
+        Calendar now = Calendar.getInstance();
+        String bs = NepaliDate.format(NepaliDate.of(now));
+        date.setText(new SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now.getTime())
+                + (bs != null ? "  \u00b7  " + bs : ""));
+        date.setTextColor(0xCCFFFFFF);
+        date.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.round(30 * scale));
+        date.setShadowLayer(10 * scale, 0, 0, 0x80000000);
+        LinearLayout corner = new LinearLayout(this);
+        corner.setOrientation(LinearLayout.VERTICAL);
+        corner.setGravity(Gravity.END);
+        corner.addView(clock);
+        corner.addView(date);
         FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END);
         cp.setMargins(0, 0, Math.round(96 * scale), Math.round(72 * scale));
-        root.addView(clock, cp);
+        root.addView(corner, cp);
         setContentView(root);
     }
 

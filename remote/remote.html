@@ -111,6 +111,15 @@
 </section>
 
 <section>
+  <h2>Sleep timer</h2>
+  <div class="row">
+    <button data-a="timer" data-name="30">30 min</button><button data-a="timer" data-name="60">1 hour</button>
+    <button data-a="timer" data-name="90">90 min</button><button data-a="timer" data-name="0">Off</button>
+  </div>
+  <small id="timer">The TV turns itself off when it runs out. Keep this laptop on until then.</small>
+</section>
+
+<section>
   <h2>Tools</h2>
   <div class="row row3">
     <button data-a="free">Free memory</button>
@@ -147,7 +156,7 @@ document.addEventListener("click", e => {
   delete b.dataset.held;
   if (b.dataset.a) {
     if (b.dataset.confirm && !confirm(b.dataset.confirm)) return;
-    buzz(); const p = b.dataset.name ? { name: b.dataset.name } : null;
+    buzz(); const p = b.dataset.a === "timer" ? { mins: b.dataset.name } : b.dataset.name ? { name: b.dataset.name } : null;
     call(b.dataset.a, p).then(r => r && toast(b.textContent.trim() + " ✓"));
   }
 });
@@ -205,7 +214,8 @@ async function refresh() {
   if (!r) { $("#dot").className = "dot"; $("#st").textContent = "TV offline"; return; }
   const s = await r.json();
   $("#dot").className = "dot" + (s.awake ? " on" : "");
-  $("#st").innerHTML = `${s.awake ? "On" : "Asleep"} · <b>${s.free_mb} MB</b> free` + (s.app ? `<br>${s.app}` : "");
+  $("#timer").textContent = s.sleep_in ? `The TV turns off in ${s.sleep_in} min.` : "The TV turns itself off when it runs out. Keep this laptop on until then.";
+  $("#st").innerHTML = `${s.sleep_in ? "⏾ " + s.sleep_in + "m · " : ""}${s.awake ? "On" : "Asleep"} · <b>${s.free_mb} MB</b> free` + (s.app ? `<br>${s.app}` : "");
 }
 refresh(); loadApps(); loadWalls(); setInterval(refresh, 10000);
 </script>

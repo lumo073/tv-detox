@@ -18,6 +18,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -52,6 +53,25 @@ def find_adb():
 ADB = find_adb()
 TV = ""
 lock = threading.Lock()  # one adb command at a time keeps button presses in order
+sleep_timer = {"at": 0, "timer": None}  # sleep timer: when it fires, and the timer itself
+
+
+def set_sleep_timer(minutes):
+    """Puts the TV to sleep in so many minutes, like a TV's own sleep timer. 0 cancels.
+    It runs on this laptop, so the laptop has to stay on until then."""
+    if sleep_timer["timer"]:
+        sleep_timer["timer"].cancel()
+    sleep_timer.update(at=0, timer=None)
+    if minutes > 0:
+        def fire():
+            with lock:
+                if connected():
+                    sh("input keyevent KEYCODE_SLEEP")
+            sleep_timer.update(at=0, timer=None)
+        t = threading.Timer(minutes * 60, fire)
+        t.daemon = True
+        t.start()
+        sleep_timer.update(at=time.time() + minutes * 60, timer=t)
 
 
 def adb(*args, timeout=15, binary=False):
@@ -103,7 +123,8 @@ def status():
     focus = sh("dumpsys window | grep -m1 mCurrentFocus").strip()
     app = focus.split(" u0 ")[-1].split("/")[0] if " u0 " in focus else ""
     return {"free_mb": mem.get("MemAvailable", 0), "total_mb": mem.get("MemTotal", 0),
-            "app": NAMES.get(app, app), "awake": "mWakefulness=Awake" in sh("dumpsys power | grep -m1 mWakefulness")}
+            "app": NAMES.get(app, app), "awake": "mWakefulness=Awake" in sh("dumpsys power | grep -m1 mWakefulness"),
+            "sleep_in": max(0, round((sleep_timer["at"] - time.time()) / 60)) if sleep_timer["at"] else 0}
 
 
 def act(a, q):
@@ -131,6 +152,8 @@ def act(a, q):
         sh("pm trim-caches 99G")
     elif a == "screensaver":
         sh("am start -n com.android.systemui/.Somnambulator")
+    elif a == "timer":
+        set_sleep_timer(int(q.get("mins", "0")) if q.get("mins", "0").isdigit() else 0)
     elif a == "reboot":
         adb("reboot", timeout=5)
 

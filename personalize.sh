@@ -1,20 +1,21 @@
 #!/bin/sh
 # Personal touches for the home screen: your wallpapers, a greeting, watch time and a photo frame.
 #
-#   sh personalize.sh <TV_IP> [name] [bedtime]
-#   sh personalize.sh 192.168.1.69 Lumo 23:00
+#   sh personalize.sh <TV_IP> [name] [bedtime] [birthday MM-DD]
+#   sh personalize.sh 192.168.1.69 Lumo 23:00 07-21
 #
 # - Pictures in wallpapers/ are shrunk to the TV's screen size (needs Python with Pillow; without it
 #   they're sent as they are, which also works, just bigger) and copied to the home screen's folder.
 #   The home screen shows a new one each day; the picture icon by the clock picks one instead.
-# - The greeting under the clock uses your name; from bedtime until 5 am it says it's time to wind down.
+# - The greeting under the clock uses your name; from bedtime until 5 am it says it's time to wind down
+#   and the wallpaper dims. On your birthday it says happy birthday.
 # - Watch time today needs usage access, which this turns on for the home screen only.
 # - The screensaver becomes a photo frame of the same pictures. The TV still sleeps when it did before.
 set -e
 export MSYS2_ARG_CONV_EXCL="/sdcard;/data;/system" # Git Bash on Windows: keep TV paths as they are
 cd "$(dirname "$0")"
 
-TARGET="$1"; NAME="$2"; BEDTIME="$3"
+TARGET="$1"; NAME="$2"; BEDTIME="$3"; BIRTHDAY="$4"
 [ -n "$TARGET" ] || { echo "Usage: sh personalize.sh <TV_IP> [name] [bedtime like 23:00]" >&2; exit 1; }
 case "$TARGET" in
   *.*.*.*:*) TV=$TARGET ;;
@@ -64,6 +65,7 @@ sh_tv appops set com.ansub.tvhome GET_USAGE_STATS allow
 set -- --es stamp "$(date +%s)" --es wall daily
 [ -n "$NAME" ] && set -- "$@" --es name "\"$NAME\""
 [ -n "$BEDTIME" ] && set -- "$@" --es bedtime "$BEDTIME"
+[ -n "$BIRTHDAY" ] && set -- "$@" --es birthday "$BIRTHDAY"
 sh_tv am start -n com.ansub.tvhome/.MainActivity "$@" >/dev/null
 
 # Photo frame screensaver after 5 minutes. Sleep stays as it was (it ends the photo frame).

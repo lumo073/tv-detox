@@ -79,6 +79,7 @@ public class MainActivity extends Activity {
     //   --es name "Lumo"        the greeting under the clock says "Good evening, Lumo"
     //   --es bedtime "23:00"    from then until 5 am the greeting says it's time to wind down (none: off)
     //   --es wall daily         wallpaper: a different one each day (default), "off", or a file name
+    //   --es birthday "07-21"   month-day: the greeting says happy birthday that day
     //   --es trim "pkg1,pkg2"   apps that start themselves at boot, cleared from memory two minutes
     //                           after start-up (default Netflix, which holds ~130 MB; none: off)
     // Wallpapers are files in the app's folder on the TV, see Wallpapers.java. A picture icon by the
@@ -102,7 +103,7 @@ public class MainActivity extends Activity {
     private static final int[][] QUICK_ICONS = {LineIcon.BLUETOOTH, LineIcon.SOUND, LineIcon.PICTURE};
     private static final String NETWORK = "network";
     private static final String WALL = "wallpaper";
-    private static final String[] PREF_EXTRAS = {"name", "bedtime", "wall", "trim"};
+    private static final String[] PREF_EXTRAS = {"name", "bedtime", "wall", "trim", "birthday"};
     private static final int OFFLINE = 0, ETHERNET = 4; // network states; 1 to 3 are Wi-Fi bars
     // TCL keeps its own Picture and Sound panels in a service; Android's Sound page is missing there.
     private static final String TCL_SHOW_WINDOW = "com.tcl.settings.SHOW_WINDOW";
@@ -127,6 +128,10 @@ public class MainActivity extends Activity {
     private boolean longPressed; // OK was held: swallow the key-up so the app doesn't open
     private String wallShown;   // wallpaper file on screen, "" for the plain background, null to reload
     private TextView greeting;  // under the clock: greeting and watch time, refreshed every minute
+    private TextView nepali;    // after the date: today in Bikram Sambat
+    // Focus glow on glass tiles, icons and menus. With a wallpaper it takes on the picture's colour.
+    private static final int PLAIN_FOCUS = 0x38FFFFFF;
+    private int accent = PLAIN_FOCUS;
     private final Handler handler = new Handler();
     private static boolean bootTrimDone; // once per process, and this process starts with the TV
     private final Runnable minute = new Runnable() {
@@ -178,7 +183,17 @@ public class MainActivity extends Activity {
         time.setLetterSpacing(-0.028f);
         time.setFontFeatureSettings("tnum");
         time.setIncludeFontPadding(false);
-        clock.addView(date);
+        LinearLayout dateRow = new LinearLayout(this);
+        dateRow.setOrientation(LinearLayout.HORIZONTAL);
+        dateRow.addView(date);
+        // Noto Devanagari straight from its file: MiLan Pro has no Devanagari, and a typeface loaded
+        // from a file doesn't fall back to the system's.
+        nepali = text(px(30), 0xA8FFFFFF, fromFile("/system/fonts/NotoSansDevanagari-Regular.ttf", null));
+        nepali.setSingleLine(true);
+        nepali.setIncludeFontPadding(false); // Devanagari's tall line would push the date down
+        dateRow.addView(nepali, new LinearLayout.LayoutParams(-2, -2));
+        // Wrap, not the vertical default of match-parent: that squeezed the row to the time's width.
+        clock.addView(dateRow, new LinearLayout.LayoutParams(-2, -2));
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
         tp.topMargin = px(-20); // pull the big digits up under the date
         clock.addView(time, tp);
@@ -195,6 +210,7 @@ public class MainActivity extends Activity {
         root.addView(moveHint, at(px(MARGIN), px(ROW1_TOP - 64), -2, -2));
 
         setContentView(scroller);
+        refreshGreeting(); // fill the date row before the first layout
 
         if (!bootTrimDone && SystemClock.elapsedRealtime() < 10 * 60_000) {
             bootTrimDone = true;
@@ -354,21 +370,26 @@ public class MainActivity extends Activity {
     // coming back Home costs nothing. A shade keeps the clock and the tiles readable on bright pictures.
     private void applyWallpaper() {
         File f = wallpaperFor(Wallpapers.list(this));
-        String name = f == null ? "" : f.getPath();
+        boolean night = isLate(Calendar.getInstance());
+        String name = f == null ? "" : f.getPath() + (night ? "#night" : "");
         if (name.equals(wallShown)) return;
         wallShown = name;
         Bitmap b = f == null ? null : Wallpapers.load(f, getResources().getDisplayMetrics().widthPixels,
                 getResources().getDisplayMetrics().heightPixels);
         if (b == null) {
+            accent = PLAIN_FOCUS;
             getWindow().setBackgroundDrawable(background());
             return;
         }
+        accent = Wallpapers.accent(b, PLAIN_FOCUS);
         GradientDrawable shade = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[] {0x99000000, 0x40000000, 0x1A000000, 0x59000000, 0xB3000000});
         GradientDrawable side = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                 new int[] {0x66000000, 0x00000000, 0x00000000});
+        // After bedtime the picture dims, so the room stays dark and the home screen is calm.
+        Drawable dim = new ColorDrawable(night ? 0x8C000000 : Color.TRANSPARENT);
         getWindow().setBackgroundDrawable(new LayerDrawable(new Drawable[] {
-                new BitmapDrawable(getResources(), b), shade, side}));
+                new BitmapDrawable(getResources(), b), shade, side, dim}));
     }
 
     // Picks the wallpaper from the remote: one a day, a fixed one, or the plain background.
@@ -391,16 +412,24 @@ public class MainActivity extends Activity {
         });
     }
 
-    // "Good evening, Lumo - 1h 25m of TV today". Late at night it nudges toward bed instead.
+    // "Good evening, Lumo - 1h 25m of TV today". Late at night it nudges toward bed instead, and on a
+    // birthday or New Year's Day (Nepali or English) it says so.
     private void refreshGreeting() {
         SharedPreferences prefs = getSharedPreferences(PREFS, 0);
         String name = prefs.getString("name", null);
         Calendar now = Calendar.getInstance();
         int mins = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
-        int bed = minutesOf(prefs.getString("bedtime", null));
-        boolean late = bed >= 0 && (bed > 5 * 60 ? mins >= bed || mins < 5 * 60 : mins >= bed && mins < 5 * 60);
+        int[] bs = NepaliDate.of(now);
+        String bsText = NepaliDate.format(bs);
+        nepali.setText(bsText == null ? "" : "  \u00b7  " + bsText);
+        String birthday = prefs.getString("birthday", null);
+        String today = String.format(java.util.Locale.ROOT, "%02d-%02d", now.get(Calendar.MONTH) + 1,
+                now.get(Calendar.DAY_OF_MONTH));
         String hello;
-        if (late) hello = "It's getting late" + (name != null ? ", " + name : "") + ". Time to wind down";
+        if (today.equals(birthday)) hello = "Happy birthday" + (name != null ? ", " + name : "") + "!";
+        else if (bs != null && bs[1] == 1 && bs[2] == 1) hello = "Happy Nepali New Year " + bs[0] + "!";
+        else if (today.equals("01-01")) hello = "Happy New Year " + now.get(Calendar.YEAR) + "!";
+        else if (isLate(now)) hello = "It's getting late" + (name != null ? ", " + name : "") + ". Time to wind down";
         else {
             hello = mins < 5 * 60 ? "Good night" : mins < 12 * 60 ? "Good morning"
                     : mins < 17 * 60 ? "Good afternoon" : mins < 22 * 60 ? "Good evening" : "Good night";
@@ -415,6 +444,14 @@ public class MainActivity extends Activity {
             final String line = head + "  \u00b7  " + duration(watched) + " of TV today";
             runOnUiThread(() -> { if (greeting.getText().toString().startsWith(head)) greeting.setText(line); });
         }).start();
+    }
+
+    // From bedtime until 5 am. No bedtime set: never.
+    private boolean isLate(Calendar now) {
+        int mins = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
+        int bed = minutesOf(getSharedPreferences(PREFS, 0).getString("bedtime", null));
+        if (bed < 0) return false;
+        return bed > 5 * 60 ? mins >= bed || mins < 5 * 60 : mins >= bed && mins < 5 * 60;
     }
 
     // "23:00" -> 1380, or -1 when unset or unreadable.
@@ -608,7 +645,7 @@ public class MainActivity extends Activity {
         final boolean glass = banner == null;
         card.setOnFocusChangeListener((v, has) -> {
             if (has) focusedKey = key;
-            if (glass) bg.setColor(has ? 0x38FFFFFF : 0x13FFFFFF);
+            if (glass) bg.setColor(has ? accent : 0x13FFFFFF);
             v.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).translationZ(has ? px(26) : 0)
                     .setDuration(140).withLayer().start();
             if (caption != null) caption.setVisibility(has ? View.VISIBLE : View.INVISIBLE);
@@ -667,7 +704,7 @@ public class MainActivity extends Activity {
         card.setContentDescription(label);
         card.setOnFocusChangeListener((v, has) -> {
             if (has) focusedKey = key;
-            bg.setColor(has ? 0x38FFFFFF : Color.TRANSPARENT);
+            bg.setColor(has ? accent : Color.TRANSPARENT);
             v.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).setDuration(140).withLayer().start();
         });
         card.setOnClickListener(v -> open(key));
@@ -865,7 +902,7 @@ public class MainActivity extends Activity {
         list.setOverScrollMode(View.OVER_SCROLL_NEVER);
         GradientDrawable focus = new GradientDrawable();
         focus.setCornerRadius(px(RADIUS));
-        focus.setColor(0x38FFFFFF);
+        focus.setColor(accent);
         list.setSelector(focus);
         // Icons load as rows appear, drawn small to save RAM.
         final PackageManager pm = getPackageManager();
@@ -940,7 +977,7 @@ public class MainActivity extends Activity {
             t.setBackground(focus);
             t.setFocusable(true);
             t.setOnFocusChangeListener((v, has) -> {
-                focus.setColor(has ? 0x38FFFFFF : Color.TRANSPARENT);
+                focus.setColor(has ? accent : Color.TRANSPARENT);
                 t.setTextColor(has ? Color.WHITE : 0xD9FFFFFF);
             });
             t.setOnClickListener(v -> {

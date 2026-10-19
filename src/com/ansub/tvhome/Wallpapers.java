@@ -46,6 +46,30 @@ final class Wallpapers {
         return dot > 0 ? n.substring(0, dot) : n;
     }
 
+    // A see-through focus colour taken from the picture: the average hue of its colourful pixels,
+    // made soft and bright. Looks at a 32x18 copy, so it costs nothing. Grey pictures get fallback.
+    static int accent(Bitmap b, int fallback) {
+        try {
+            Bitmap small = Bitmap.createScaledBitmap(b, 32, 18, true);
+            double x = 0, y = 0, weight = 0;
+            float[] hsv = new float[3];
+            for (int j = 0; j < small.getHeight(); j++)
+                for (int i = 0; i < small.getWidth(); i++) {
+                    android.graphics.Color.colorToHSV(small.getPixel(i, j), hsv);
+                    double w = hsv[1] * hsv[2]; // colourful and bright counts most
+                    x += Math.cos(Math.toRadians(hsv[0])) * w;
+                    y += Math.sin(Math.toRadians(hsv[0])) * w;
+                    weight += w;
+                }
+            if (small != b) small.recycle();
+            if (weight / (32 * 18) < 0.08) return fallback;
+            float hue = (float) ((Math.toDegrees(Math.atan2(y, x)) + 360) % 360);
+            return android.graphics.Color.HSVToColor(0x70, new float[] {hue, 0.45f, 0.95f});
+        } catch (Throwable t) {
+            return fallback;
+        }
+    }
+
     // Decodes f center-cropped to exactly w x h. Big files are subsampled while decoding, so even a
     // 4K picture never needs more than a few MB on the way in. Returns null if it can't be read.
     static Bitmap load(File f, int w, int h) {
